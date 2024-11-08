@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.PriorityQueue;
 import org.apache.kafka.clients.producer.Partitioner;
 import org.apache.kafka.common.Cluster;
@@ -53,19 +54,19 @@ public class YourPartitioner implements Partitioner {
     List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
     partitions.forEach(
         p -> partitionToUsage.putIfAbsent(new CustomPartition(p.topic(), p.partition()), 0));
-    CustomPartition selectPartition = findPartitionOnNode(leastUsedNode.node, partitionToUsage);
+    CustomPartition selectedPartition = findPartitionOnNode(partitions, leastUsedNode.node);
 
-    // 基於平均加權偏差更新每個節點的空間使用率
+    // 更新節點與分區的使用率
     int dataUsage = calculateDataUsage(key, value);
-    updateNodeUsageWithWeightedDeviation(leastUsedNode, dataUsage);
-    updatePartitionUsage(selectPartition, dataUsage);
+    updateNodeUsage(leastUsedNode, dataUsage);
+    updatePartitionUsage(selectedPartition, dataUsage);
 
     nodes.offer(leastUsedNode);
-    return selectPartition.partition;
+    return selectedPartition.partition;
   }
 
-  private void updatePartitionUsage(CustomPartition selectPartition, int dataUsage) {
-    partitionToUsage.put(selectPartition, partitionToUsage.get(selectPartition) + dataUsage);
+  private void updatePartitionUsage(CustomPartition selectedPartition, int dataUsage) {
+    partitionToUsage.put(selectedPartition, partitionToUsage.get(selectedPartition) + dataUsage);
   }
 
   private void initializeNodeUsage(List<Node> clusterNodes) {
@@ -74,24 +75,15 @@ public class YourPartitioner implements Partitioner {
     }
   }
 
-  // 根據加權偏差進行負載分配更新
-  private void updateNodeUsageWithWeightedDeviation(NodeWithUsed nodeWithUsed, int dataUsage) {
-    double totalUsage = nodes.stream().mapToInt(n -> n.used).sum() + dataUsage;
-    double averageUsage = totalUsage / nodes.size();
-
-    for (NodeWithUsed node : nodes) {
-      // 加入加權偏差的計算
-      double weight = Math.abs(node.used - averageUsage) / averageUsage;
-      node.used += (int) (weight * dataUsage);
-    }
+  private void updateNodeUsage(NodeWithUsed nodeWithUsed, int dataUsage) {
     nodeWithUsed.used += dataUsage;
   }
 
-  private CustomPartition findPartitionOnNode(Node node, Map<CustomPartition, Integer> partitions) {
-    return partitions.entrySet().stream()
-        .filter(e -> e.getKey().topic.equals(node.host()))
-        .min(Comparator.comparingInt(Map.Entry::getValue))
-        .map(Map.Entry::getKey)
+  private CustomPartition findPartitionOnNode(List<PartitionInfo> partitions, Node node) {
+    return partitions.stream()
+        .filter(p -> p.leader().equals(node))
+        .map(p -> new CustomPartition(p.topic(), p.partition()))
+        .min(Comparator.comparingInt(partitionToUsage::get))
         .orElseThrow(() -> new IllegalStateException("No partition found on node " + node.host()));
   }
 
@@ -122,12 +114,15 @@ public class YourPartitioner implements Partitioner {
 
     @Override
     public int hashCode() {
-      return super.hashCode();
+      return Objects.hash(topic, partition);
     }
 
     @Override
     public boolean equals(Object obj) {
-      return super.equals(obj);
+      if (this == obj) return true;
+      if (obj == null || getClass() != obj.getClass()) return false;
+      CustomPartition that = (CustomPartition) obj;
+      return partition == that.partition && Objects.equals(topic, that.topic);
     }
   }
 
