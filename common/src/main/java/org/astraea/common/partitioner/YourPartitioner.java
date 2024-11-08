@@ -19,9 +19,9 @@ package org.astraea.common.partitioner;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import org.apache.kafka.clients.producer.Partitioner;
 import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 
 /**
@@ -30,70 +30,69 @@ import org.apache.kafka.common.PartitionInfo;
  */
 public class YourPartitioner implements Partitioner {
 
-  private Map<Integer, Double>
-      nodeSpaceUtilization; // Key: Node ID, Value: Space utilization percentage
-  private Map<Integer, Integer> partitionLoadMap; // Key: Node ID, Value: Number of partitions
+  // Key: Node ID, Value: Space utilization percentage
+  private Map<Node, Double> nodeSpaceUtilization;
+  private Map<String, Double> partitionSpaceUtilization;
+  private Map<Integer, List<String>> nodeToPartitions;
 
   @Override
   public void configure(Map<String, ?> configs) {
     // Initialize any required configurations
     nodeSpaceUtilization = new HashMap<>();
-    partitionLoadMap = new HashMap<>();
+    partitionSpaceUtilization = new HashMap<>();
+    nodeToPartitions = new HashMap<>();
   }
 
   /**
-   * Step 1. calculate this data's space utilization 2. get node's average utilization and deviation
-   * 3. filter out overloaded nodes 4. assign partition based on filtered nodes for balanced space
-   * utilization 5. update space utilization for the selected node 6. return partition
+   * Step
+   *
+   * <p>1. calculate this data's space utilization
+   *
+   * <p>2. get nodes which have the lowest space utilization
+   *
+   * <p>3. assign partition based on filtered nodes for balanced space utilization
+   *
+   * <p>4. update space utilization for the selected node 6. return partition
    */
   @Override
   public int partition(
       String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
     List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
-    // 1. Calculate this data's space utilization
-    int spaceUtilization = keyBytes.length + valueBytes.length;
-    // 2. Get node's average utilization and deviation
-    double averageUtilization =
-        nodeSpaceUtilization.values().stream()
-            .mapToDouble(Double::doubleValue)
-            .average()
-            .orElse(0.0);
-    // 3. Filter out overloaded nodes
-    List<Integer> candidateNodes =
-        nodeSpaceUtilization.entrySet().stream()
-            .filter(
-                entry ->
-                    entry.getValue()
-                        <= averageUtilization
-                            + calculateAverageAbsoluteDeviation(averageUtilization))
-            .map(Map.Entry::getKey)
-            .collect(Collectors.toList());
-    // 4. Assign partition based on filtered nodes for balanced space utilization
-    int selectedPartition = 0;
-    if (!candidateNodes.isEmpty()) {
-      int nodeIndex = candidateNodes.get(Math.abs(spaceUtilization) % candidateNodes.size());
-      selectedPartition = getPartitionForNode(nodeIndex, partitions);
-    }
-    // 5. Update space utilization for the selected node
+    partitions.stream()
+        .map(PartitionInfo::leader)
+        .forEach(nodeId -> nodeSpaceUtilization.put(nodeId, 0.0));
+    partitions.forEach(
+        partitionInfo -> {
+          String partition = partitionInfo.topic() + partitionInfo.partition();
+          partitionSpaceUtilization.putIfAbsent(
+              partitionInfo.topic() + partitionInfo.partition(), 0.0);
+          nodeToPartitions
+              .computeIfAbsent(partitionInfo.leader().id(), k -> List.of())
+              .add(partition);
+        });
+    // 1. calculate this data's space utilization
+    double dataSpaceUtilization = calculateDataSpaceUtilization(keyBytes, valueBytes);
+    // 2. get nodes which have the lowest space utilization
+    Node selectedNode =
+        nodeSpaceUtilization.entrySet().stream().min(Map.Entry.comparingByValue()).get().getKey();
+    // 3. assign partition based on filtered nodes for balanced space utilization
+    String selectedPartition =
+        nodeToPartitions.get(selectedNode.id()).stream()
+            .filter(partition -> partitionSpaceUtilization.get(partition) == 0.0)
+            .findFirst()
+            .orElseThrow();
+    int selectedPartitions = selectedPartition.charAt(topic.length() - 1);
+    // 4. update space utilization for the selected node
     nodeSpaceUtilization.put(
-        selectedPartition,
-        nodeSpaceUtilization.getOrDefault(selectedPartition, 0.0) + spaceUtilization);
-    return selectedPartition;
+        selectedNode, nodeSpaceUtilization.get(selectedNode) + dataSpaceUtilization);
+    partitionSpaceUtilization.put(
+        topic + selectedPartitions,
+        partitionSpaceUtilization.get(topic + selectedPartitions) + dataSpaceUtilization);
+    return selectedPartitions;
   }
 
-  private double calculateAverageAbsoluteDeviation(double average) {
-    return nodeSpaceUtilization.values().stream()
-        .mapToDouble(util -> Math.abs(util - average))
-        .average()
-        .orElse(0.0);
-  }
-
-  private int getPartitionForNode(int nodeId, List<PartitionInfo> partitions) {
-    // Implement logic to select a specific partition for the given node based on nodeId
-    // For simplicity, we assume round-robin assignment among partitions assigned to this node.
-    int partitionIndex = partitionLoadMap.getOrDefault(nodeId, 0) % partitions.size();
-    partitionLoadMap.put(nodeId, partitionLoadMap.get(nodeId) + 1); // Update load
-    return partitions.get(partitionIndex).partition();
+  private double calculateDataSpaceUtilization(byte[] keyBytes, byte[] valueBytes) {
+    return keyBytes.length + valueBytes.length;
   }
 
   @Override
