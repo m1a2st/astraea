@@ -33,7 +33,7 @@ import org.apache.kafka.common.PartitionInfo;
 public class YourPartitioner implements Partitioner {
 
   PriorityQueue<NodeWithUsed> nodes = new PriorityQueue<>(Comparator.comparing(n -> n.used));
-  Map<Integer, Integer> partitionToNode = new HashMap<>();
+  Map<CustomPartition, Integer> partitionToUsage = new HashMap<>();
 
   @Override
   public void configure(Map<String, ?> configs) {}
@@ -51,19 +51,31 @@ public class YourPartitioner implements Partitioner {
     }
 
     List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
-    int partition = findPartitionOnNode(leastUsedNode.node, partitions);
+    partitions.forEach(
+        p -> partitionToUsage.putIfAbsent(new CustomPartition(p.topic(), p.partition()), 0));
+    CustomPartition selectPartition = findPartitionOnNode(leastUsedNode.node, partitionToUsage);
 
     // 基於平均加權偏差更新每個節點的空間使用率
-    int dataUsage = calculateDataUsage(value);
-    updateNodeUsageWithWeightedDeviation(leastUsedNode, dataUsage, partitions);
+    int dataUsage = calculateDataUsage(key, value);
+    updateNodeUsageWithWeightedDeviation(leastUsedNode, dataUsage);
+    updatePartitionUsage(selectPartition, dataUsage);
 
     nodes.offer(leastUsedNode);
-    return partition;
+    return selectPartition.partition;
+  }
+
+  private void updatePartitionUsage(CustomPartition selectPartition, int dataUsage) {
+    partitionToUsage.put(selectPartition, partitionToUsage.get(selectPartition) + dataUsage);
+  }
+
+  private void initializeNodeUsage(List<Node> clusterNodes) {
+    for (Node node : clusterNodes) {
+      nodes.offer(new NodeWithUsed(node, 0));
+    }
   }
 
   // 根據加權偏差進行負載分配更新
-  private void updateNodeUsageWithWeightedDeviation(
-      NodeWithUsed nodeWithUsed, int dataUsage, List<PartitionInfo> partitions) {
+  private void updateNodeUsageWithWeightedDeviation(NodeWithUsed nodeWithUsed, int dataUsage) {
     double totalUsage = nodes.stream().mapToInt(n -> n.used).sum() + dataUsage;
     double averageUsage = totalUsage / nodes.size();
 
@@ -75,34 +87,18 @@ public class YourPartitioner implements Partitioner {
     nodeWithUsed.used += dataUsage;
   }
 
-  private void initializeNodeUsage(List<Node> clusterNodes) {
-    for (Node node : clusterNodes) {
-      nodes.offer(
-          new NodeWithUsed(node, 0)); // Initialize usage to 0 or load from metrics if available
-    }
+  private CustomPartition findPartitionOnNode(Node node, Map<CustomPartition, Integer> partitions) {
+    return partitions.entrySet().stream()
+        .filter(e -> e.getKey().topic.equals(node.host()))
+        .min(Comparator.comparingInt(Map.Entry::getValue))
+        .map(Map.Entry::getKey)
+        .orElseThrow(() -> new IllegalStateException("No partition found on node " + node.host()));
   }
 
-  private int findPartitionOnNode(Node node, List<PartitionInfo> partitions) {
-    // Look for partitions led by this node
-    for (PartitionInfo partitionInfo : partitions) {
-      if (partitionInfo.leader().id() == node.id()) {
-        // Map this partition to the node
-        partitionToNode.put(partitionInfo.partition(), node.id());
-        return partitionInfo.partition();
-      }
-    }
-    // Default to the first partition if none are specifically led by this node
-    return partitions.get(0).partition();
-  }
-
-  private void updateNodeUsage(NodeWithUsed nodeWithUsed, int dataUsage) {
-    // Update the usage based on data size or some other metric
-    nodeWithUsed.used += dataUsage;
-  }
-
-  private int calculateDataUsage(Object value) {
-    // For example, estimate usage based on data size or a constant if data size is not available
-    return value != null ? value.toString().length() : 1; // Placeholder usage metric
+  private int calculateDataUsage(Object key, Object value) {
+    int keySize = key != null ? key.toString().length() : 1;
+    int valueSize = value != null ? value.toString().length() : 1;
+    return keySize + valueSize;
   }
 
   class NodeWithUsed {
@@ -112,6 +108,26 @@ public class YourPartitioner implements Partitioner {
     public NodeWithUsed(Node node, int used) {
       this.node = node;
       this.used = used;
+    }
+  }
+
+  class CustomPartition {
+    String topic;
+    int partition;
+
+    public CustomPartition(String topic, int partition) {
+      this.topic = topic;
+      this.partition = partition;
+    }
+
+    @Override
+    public int hashCode() {
+      return super.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      return super.equals(obj);
     }
   }
 
