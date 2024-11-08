@@ -41,30 +41,37 @@ public class YourPartitioner implements Partitioner {
   @Override
   public int partition(
       String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
-
-    // Step 1: Get or initialize nodes with utilization data
     if (nodes.isEmpty()) {
       initializeNodeUsage(cluster.nodes());
     }
 
-    // Step 2: Get the node with the lowest space utilization
     NodeWithUsed leastUsedNode = nodes.poll();
     if (leastUsedNode == null) {
       throw new IllegalStateException("No available nodes found.");
     }
 
-    // Step 3: Find a suitable partition on the selected node
     List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
     int partition = findPartitionOnNode(leastUsedNode.node, partitions);
 
-    // Step 4: Update space utilization for the selected node
-    updateNodeUsage(leastUsedNode, calculateDataUsage(value));
+    // 更新每個節點的權重, 使用平均絕對偏差來平衡節點之間的使用率
+    int dataUsage = calculateDataUsage(value);
+    updateNodeUsageWithBalancing(leastUsedNode, dataUsage, partitions);
 
-    // Re-add the updated node to the priority queue
     nodes.offer(leastUsedNode);
-
-    // Step 5: Return the selected partition
     return partition;
+  }
+
+  // 將負載平衡計算邏輯加進來
+  private void updateNodeUsageWithBalancing(
+      NodeWithUsed nodeWithUsed, int dataUsage, List<PartitionInfo> partitions) {
+    double totalUsage = nodes.stream().mapToInt(n -> n.used).sum() + dataUsage;
+    double averageUsage = totalUsage / nodes.size();
+
+    // 以節點使用量差異作為平衡依據
+    for (NodeWithUsed node : nodes) {
+      node.used += Math.abs(node.used - averageUsage);
+    }
+    nodeWithUsed.used += dataUsage;
   }
 
   private void initializeNodeUsage(List<Node> clusterNodes) {
