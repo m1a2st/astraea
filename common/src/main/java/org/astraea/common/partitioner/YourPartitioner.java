@@ -31,7 +31,8 @@ import org.apache.kafka.common.utils.Utils;
  */
 public class YourPartitioner implements Partitioner {
 
-  private Map<Integer, Double> nodeSpaceUtilization; // Key: Node ID, Value: Space utilization percentage
+  private Map<Integer, Double>
+      nodeSpaceUtilization; // Key: Node ID, Value: Space utilization percentage
   private Map<Integer, Integer> partitionLoadMap; // Key: Node ID, Value: Number of partitions
 
   @Override
