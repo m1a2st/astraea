@@ -39,7 +39,8 @@ public class YourPartitioner implements Partitioner {
   public void configure(Map<String, ?> configs) {}
 
   @Override
-  public int partition(String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
+  public int partition(
+      String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
     if (nodes.isEmpty()) {
       initializeNodeUsage(cluster.nodes());
     }
@@ -61,7 +62,8 @@ public class YourPartitioner implements Partitioner {
   }
 
   // 根據加權偏差進行負載分配更新
-  private void updateNodeUsageWithWeightedDeviation(NodeWithUsed nodeWithUsed, int dataUsage, List<PartitionInfo> partitions) {
+  private void updateNodeUsageWithWeightedDeviation(
+      NodeWithUsed nodeWithUsed, int dataUsage, List<PartitionInfo> partitions) {
     double totalUsage = nodes.stream().mapToInt(n -> n.used).sum() + dataUsage;
     double averageUsage = totalUsage / nodes.size();
 
