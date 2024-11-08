@@ -31,8 +31,7 @@ import org.apache.kafka.common.utils.Utils;
  */
 public class YourPartitioner implements Partitioner {
 
-  private Map<Integer, Double>
-      nodeSpaceUtilization; // Key: Node ID, Value: Space utilization percentage
+  private Map<Integer, Double> nodeSpaceUtilization; // Key: Node ID, Value: Space utilization percentage
   private Map<Integer, Integer> partitionLoadMap; // Key: Node ID, Value: Number of partitions
 
   @Override
@@ -71,7 +70,7 @@ public class YourPartitioner implements Partitioner {
       selectedPartition = getPartitionForNode(nodeIndex, partitions);
     }
 
-    return selectedPartition;
+    return Math.max(selectedPartition, 0);
   }
 
   private double calculateAverageAbsoluteDeviation(double average) {
