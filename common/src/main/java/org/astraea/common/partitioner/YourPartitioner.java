@@ -39,8 +39,7 @@ public class YourPartitioner implements Partitioner {
   public void configure(Map<String, ?> configs) {}
 
   @Override
-  public int partition(
-      String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
+  public int partition(String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
     if (nodes.isEmpty()) {
       initializeNodeUsage(cluster.nodes());
     }
@@ -53,23 +52,23 @@ public class YourPartitioner implements Partitioner {
     List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
     int partition = findPartitionOnNode(leastUsedNode.node, partitions);
 
-    // 更新每個節點的權重, 使用平均絕對偏差來平衡節點之間的使用率
+    // 基於平均加權偏差更新每個節點的空間使用率
     int dataUsage = calculateDataUsage(value);
-    updateNodeUsageWithBalancing(leastUsedNode, dataUsage, partitions);
+    updateNodeUsageWithWeightedDeviation(leastUsedNode, dataUsage, partitions);
 
     nodes.offer(leastUsedNode);
     return partition;
   }
 
-  // 將負載平衡計算邏輯加進來
-  private void updateNodeUsageWithBalancing(
-      NodeWithUsed nodeWithUsed, int dataUsage, List<PartitionInfo> partitions) {
+  // 根據加權偏差進行負載分配更新
+  private void updateNodeUsageWithWeightedDeviation(NodeWithUsed nodeWithUsed, int dataUsage, List<PartitionInfo> partitions) {
     double totalUsage = nodes.stream().mapToInt(n -> n.used).sum() + dataUsage;
     double averageUsage = totalUsage / nodes.size();
 
-    // 以節點使用量差異作為平衡依據
     for (NodeWithUsed node : nodes) {
-      node.used += Math.abs(node.used - averageUsage);
+      // 加入加權偏差的計算
+      double weight = Math.abs(node.used - averageUsage) / averageUsage;
+      node.used += (int) (weight * dataUsage);
     }
     nodeWithUsed.used += dataUsage;
   }
