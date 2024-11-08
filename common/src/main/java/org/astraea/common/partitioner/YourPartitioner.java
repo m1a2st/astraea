@@ -16,11 +16,11 @@
  */
 package org.astraea.common.partitioner;
 
-import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.PriorityQueue;
 import org.apache.kafka.clients.producer.Partitioner;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
@@ -32,99 +32,79 @@ import org.apache.kafka.common.PartitionInfo;
  */
 public class YourPartitioner implements Partitioner {
 
-  // Key: Node ID, Value: Space utilization percentage
-  private Map<Node, Double> nodeSpaceUtilization;
-  private Map<String, Double> partitionSpaceUtilization;
-  private Map<Integer, List<String>> nodeToPartitions;
+  PriorityQueue<NodeWithUsed> nodes = new PriorityQueue<>(Comparator.comparing(n -> n.used));
+  Map<Integer, Integer> partitionToNode = new HashMap<>();
 
   @Override
-  public void configure(Map<String, ?> configs) {
-    // Initialize any required configurations
-    nodeSpaceUtilization = new HashMap<>();
-    partitionSpaceUtilization = new HashMap<>();
-    nodeToPartitions = new HashMap<>();
-  }
+  public void configure(Map<String, ?> configs) {}
 
-  /**
-   * Step
-   *
-   * <p>1. calculate this data's space utilization
-   *
-   * <p>2. get nodes which have the lowest space utilization
-   *
-   * <p>3. assign partition based on filtered nodes for balanced space utilization
-   *
-   * <p>4. update space utilization for the selected node 6. return partition
-   */
   @Override
   public int partition(
       String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
 
-    // Step 1: Calculate the space utilization for the incoming data
-    double dataSpaceUtilization = calculateDataSpaceUtilization(value);
-
-    // Step 2: Identify nodes with the lowest space utilization
-    List<Node> candidateNodes =
-        nodeSpaceUtilization.entrySet().stream()
-            .sorted(Map.Entry.comparingByValue()) // Sort nodes by utilization in ascending order
-            .map(Map.Entry::getKey)
-            .collect(Collectors.toList());
-
-    Node selectedNode = null;
-
-    // Step 3: Assign partition based on filtered nodes for balanced space utilization
-    for (Node node : candidateNodes) {
-      List<String> partitionsOnNode = nodeToPartitions.getOrDefault(node.id(), new ArrayList<>());
-      if (!partitionsOnNode.isEmpty()) {
-        selectedNode = node;
-        break;
-      }
+    // Step 1: Get or initialize nodes with utilization data
+    if (nodes.isEmpty()) {
+      initializeNodeUsage(cluster.nodes());
     }
 
-    if (selectedNode == null) {
-      // Fallback to default partitioning if no suitable node is found
-      selectedNode = cluster.availablePartitionsForTopic(topic).get(0).leader();
+    // Step 2: Get the node with the lowest space utilization
+    NodeWithUsed leastUsedNode = nodes.poll();
+    if (leastUsedNode == null) {
+      throw new IllegalStateException("No available nodes found.");
     }
 
-    // Step 4: Select a partition on the chosen node
-    int partition = selectPartitionForNode(selectedNode, cluster.partitionsForTopic(topic));
+    // Step 3: Find a suitable partition on the selected node
+    List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
+    int partition = findPartitionOnNode(leastUsedNode.node, partitions);
 
-    // Step 5: Update the space utilization for the selected node and partition
-    updateSpaceUtilization(selectedNode, partition, dataSpaceUtilization);
+    // Step 4: Update space utilization for the selected node
+    updateNodeUsage(leastUsedNode, calculateDataUsage(value));
 
+    // Re-add the updated node to the priority queue
+    nodes.offer(leastUsedNode);
+
+    // Step 5: Return the selected partition
     return partition;
   }
 
-  private double calculateDataSpaceUtilization(Object value) {
-    // Estimate the space utilization for this data based on its size or other criteria
-    // For example, you could use value's size in bytes
-    return (value != null) ? value.toString().length() * 0.01 : 0.0; // Example calculation
+  private void initializeNodeUsage(List<Node> clusterNodes) {
+    for (Node node : clusterNodes) {
+      nodes.offer(
+          new NodeWithUsed(node, 0)); // Initialize usage to 0 or load from metrics if available
+    }
   }
 
-  private int selectPartitionForNode(Node node, List<PartitionInfo> partitions) {
-    // Implement logic to select a specific partition for the given node based on node ID
-    // Example: Choose the least loaded partition
+  private int findPartitionOnNode(Node node, List<PartitionInfo> partitions) {
+    // Look for partitions led by this node
     for (PartitionInfo partitionInfo : partitions) {
       if (partitionInfo.leader().id() == node.id()) {
+        // Map this partition to the node
+        partitionToNode.put(partitionInfo.partition(), node.id());
         return partitionInfo.partition();
       }
     }
-    return 0; // Default partition if no matching partition found
+    // Default to the first partition if none are specifically led by this node
+    return partitions.get(0).partition();
   }
 
-  private void updateSpaceUtilization(Node node, int partition, double dataSpaceUtilization) {
-    // Update node's space utilization
-    nodeSpaceUtilization.put(
-        node, nodeSpaceUtilization.getOrDefault(node, 0.0) + dataSpaceUtilization);
+  private void updateNodeUsage(NodeWithUsed nodeWithUsed, int dataUsage) {
+    // Update the usage based on data size or some other metric
+    nodeWithUsed.used += dataUsage;
+  }
 
-    // Update partition space utilization
-    String partitionKey = node.id() + "-" + partition;
-    partitionSpaceUtilization.put(
-        partitionKey,
-        partitionSpaceUtilization.getOrDefault(partitionKey, 0.0) + dataSpaceUtilization);
+  private int calculateDataUsage(Object value) {
+    // For example, estimate usage based on data size or a constant if data size is not available
+    return value != null ? value.toString().length() : 1; // Placeholder usage metric
+  }
 
-    // Record the partition assignment
-    nodeToPartitions.computeIfAbsent(node.id(), k -> new ArrayList<>()).add(partitionKey);
+  class NodeWithUsed {
+    Node node;
+    int used;
+
+    public NodeWithUsed(Node node, int used) {
+      this.node = node;
+      this.used = used;
+    }
   }
 
   @Override
