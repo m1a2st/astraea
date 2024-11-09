@@ -17,25 +17,18 @@
 package org.astraea.common.partitioner;
 
 import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.PriorityQueue;
-import java.util.Set;
 import org.apache.kafka.clients.producer.Partitioner;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 
-/**
- * 目標：平衡節點 and partition 的空間使用率 次要目標：低延遲和高吞吐 空間使用率公式：average absolute deviation 考慮情境：大部分的 partitions
- * 在某個節點？ 突然跑出來的節點 or partition？ 某些節點 or partition 本來就有資料？
- */
 public class YourPartitioner implements Partitioner {
 
-  Set<Node> nodes = new HashSet<>();
-  PriorityQueue<NodeWithUsed> nodesWithUsage =
-      new PriorityQueue<>(Comparator.comparing(n -> n.used));
+  private Map<Integer, PriorityQueue<NodeWithUsed>> partitionToNodesUsage = new HashMap<>();
+  private Map<Node, Integer> nodeToUsage = new HashMap<>();
 
   @Override
   public void configure(Map<String, ?> configs) {}
@@ -44,80 +37,82 @@ public class YourPartitioner implements Partitioner {
   public int partition(
       String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
 
-    // Step 1: Get or initialize nodes with utilization data
-    if (nodesWithUsage.isEmpty()) {
-      initializeNodeUsage(cluster.nodes());
-    } else if (nodes.size() != cluster.nodes().size()) {
-      cluster.nodes().stream()
-          .filter(node -> !nodes.contains(node))
-          .forEach(
-              node -> {
-                nodes.add(node);
-                nodesWithUsage.offer(new NodeWithUsed(node, 0));
-              });
+    // Step 1: 初始化或更新 partition-to-nodes usage 表
+    if (partitionToNodesUsage.isEmpty()) {
+      initializePartitionNodeMapping(cluster, topic);
+    } else if (partitionToNodesUsage.size() != cluster.partitionsForTopic(topic).size()) {
+      updatePartitionNodeMapping(cluster, topic);
     }
 
-    // Step 2: Get the node with the lowest space utilization
-    NodeWithUsed leastUsedNode = nodesWithUsage.poll();
-    if (leastUsedNode == null) {
-      throw new IllegalStateException("No available nodes found.");
-    }
+    // Step 2: 為指定主題找到負載最低的分區
+    int selectedPartition = -1;
+    int leastUsage = Integer.MAX_VALUE;
 
-    // Step 3: Find a suitable partition on the selected node
-    List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
-    int partition = findPartitionOnNode(leastUsedNode.node, partitions);
+    for (PartitionInfo partitionInfo : cluster.partitionsForTopic(topic)) {
+      PriorityQueue<NodeWithUsed> nodesUsageQueue =
+          partitionToNodesUsage.get(partitionInfo.partition());
+      if (nodesUsageQueue == null || nodesUsageQueue.isEmpty()) {
+        continue;
+      }
 
-    // Step 4: Update space utilization for the selected node
-    updateNodeUsage(leastUsedNode, calculateDataUsage(value));
-
-    // Re-add the updated node to the priority queue
-    nodesWithUsage.offer(leastUsedNode);
-
-    // Step 5: Return the selected partition
-    return partition;
-  }
-
-  private void initializeNodeUsage(List<Node> clusterNodes) {
-    for (Node node : clusterNodes) {
-      nodes.add(node);
-      nodesWithUsage.offer(new NodeWithUsed(node, 0));
-    }
-  }
-
-  private int findPartitionOnNode(Node node, List<PartitionInfo> partitions) {
-    // Look for partitions led by this node
-    for (PartitionInfo partitionInfo : partitions) {
-      if (partitionInfo.leader().id() == node.id()) {
-        // Map this partition to the node
-        return partitionInfo.partition();
+      NodeWithUsed leastUsedNode = nodesUsageQueue.peek();
+      if (leastUsedNode != null && leastUsedNode.usage < leastUsage) {
+        leastUsage = leastUsedNode.usage;
+        selectedPartition = partitionInfo.partition();
       }
     }
-    // Default to the first partition if none are specifically led by this node
-    return partitions.get(0).partition();
+
+    // Step 3: 更新選中分區的負載
+    if (selectedPartition != -1) {
+      PriorityQueue<NodeWithUsed> selectedNodesQueue = partitionToNodesUsage.get(selectedPartition);
+      NodeWithUsed leastUsedNode = selectedNodesQueue.poll();
+      if (leastUsedNode != null) {
+        leastUsedNode.usage += calculateDataUsage(value);
+        selectedNodesQueue.offer(leastUsedNode);
+      }
+    }
+
+    return selectedPartition;
   }
 
-  private void updateNodeUsage(NodeWithUsed nodeWithUsed, int dataUsage) {
-    // Update the usage based on data size or some other metric
-    nodeWithUsed.used += dataUsage;
+  private void initializePartitionNodeMapping(Cluster cluster, String topic) {
+    for (PartitionInfo partitionInfo : cluster.partitionsForTopic(topic)) {
+      PriorityQueue<NodeWithUsed> nodesQueue =
+          new PriorityQueue<>(Comparator.comparingInt(n -> n.usage));
+      for (Node replica : partitionInfo.replicas()) {
+        nodesQueue.offer(new NodeWithUsed(replica, nodeToUsage.getOrDefault(replica, 0)));
+      }
+      partitionToNodesUsage.put(partitionInfo.partition(), nodesQueue);
+    }
+  }
+
+  private void updatePartitionNodeMapping(Cluster cluster, String topic) {
+    for (PartitionInfo partitionInfo : cluster.partitionsForTopic(topic)) {
+      if (!partitionToNodesUsage.containsKey(partitionInfo.partition())) {
+        PriorityQueue<NodeWithUsed> nodesQueue =
+            new PriorityQueue<>(Comparator.comparingInt(n -> n.usage));
+        for (Node replica : partitionInfo.replicas()) {
+          nodesQueue.offer(new NodeWithUsed(replica, nodeToUsage.getOrDefault(replica, 0)));
+        }
+        partitionToNodesUsage.put(partitionInfo.partition(), nodesQueue);
+      }
+    }
   }
 
   private int calculateDataUsage(Object value) {
-    // For example, estimate usage based on data size or a constant if data size is not available
-    return value != null ? value.toString().length() : 1; // Placeholder usage metric
-  }
-
-  class NodeWithUsed {
-    Node node;
-    int used;
-
-    public NodeWithUsed(Node node, int used) {
-      this.node = node;
-      this.used = used;
-    }
+    return value != null ? value.toString().length() : 1; // 計算使用量的佔位符
   }
 
   @Override
-  public void close() {
-    // Cleanup resources if needed
+  public void close() {}
+
+  class NodeWithUsed {
+    Node node;
+    int usage;
+
+    public NodeWithUsed(Node node, int usage) {
+      this.node = node;
+      this.usage = usage;
+    }
   }
 }
