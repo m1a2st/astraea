@@ -16,7 +16,6 @@
  */
 package org.astraea.common.partitioner;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,10 +26,13 @@ import org.apache.kafka.common.PartitionInfo;
 
 public class YourPartitioner implements Partitioner {
 
-  private final Map<Integer, AtomicLong> partitionUsageMap = new ConcurrentHashMap<>();
+  private final Map<Integer, AtomicLong> brokerSpaceUsageMap = new ConcurrentHashMap<>();
+  private final Map<Integer, Integer> partitionToBrokerMap = new ConcurrentHashMap<>();
 
   @Override
-  public void configure(Map<String, ?> configs) {}
+  public void configure(Map<String, ?> configs) {
+    // 配置初始化，可以是外部監控系統的資料來源
+  }
 
   @Override
   public int partition(
@@ -39,53 +41,58 @@ public class YourPartitioner implements Partitioner {
     List<PartitionInfo> partitions = cluster.availablePartitionsForTopic(topic);
     if (partitions.isEmpty()) return -1;
 
-    // 更新每個分區的使用狀態
-    updatePartitionUsage(partitions);
+    // 更新分區到 broker 的映射表
+    updatePartitionToBrokerMap(partitions);
 
-    // 計算每個分區的平均空間使用率
+    // 計算平均空間使用率
     double averageUsage = calculateAverageUsage();
     double aad = calculateAverageAbsoluteDeviation(averageUsage);
 
-    // 選擇空間使用率最低的分區進行分配
+    // 選擇空間使用率最低的分區所屬的 broker
+    int targetBrokerId =
+        brokerSpaceUsageMap.entrySet().stream()
+            .min(
+                (k, v) -> {
+                  double diff = v.getValue().doubleValue() - averageUsage;
+                  return diff == 0 ? 0 : diff > 0 ? 1 : -1;
+                })
+            .map(Map.Entry::getKey)
+            .orElse(partitions.get(0).leader().id());
+
+    // 找到目標 broker 上的分區
     PartitionInfo targetPartition =
         partitions.stream()
-            .min(Comparator.comparingDouble(this::getPartitionSpaceUsage))
-            .orElse(partitions.get(0)); // 若無法比較則回退至第一分區
+            .filter(partition -> partitionToBrokerMap.get(partition.partition()) == targetBrokerId)
+            .findFirst()
+            .orElse(partitions.get(0)); // 若無法找到，回退至第一分區
 
-    // 更新選擇分區的使用計數
-    partitionUsageMap.get(targetPartition.partition()).incrementAndGet();
+    // 更新選擇分區的 broker 使用狀態
+    brokerSpaceUsageMap.get(targetBrokerId).incrementAndGet();
     return targetPartition.partition();
   }
 
   @Override
   public void close() {
-    partitionUsageMap.clear();
+    brokerSpaceUsageMap.clear();
+    partitionToBrokerMap.clear();
   }
 
-  private void updatePartitionUsage(List<PartitionInfo> partitions) {
-    // 初始化或更新分區的空間使用統計
+  private void updatePartitionToBrokerMap(List<PartitionInfo> partitions) {
     for (PartitionInfo partition : partitions) {
-      partitionUsageMap.putIfAbsent(partition.partition(), new AtomicLong(0));
+      partitionToBrokerMap.put(partition.partition(), partition.leader().id());
+      brokerSpaceUsageMap.putIfAbsent(partition.leader().id(), new AtomicLong(0));
     }
   }
 
-  private double getPartitionSpaceUsage(PartitionInfo partition) {
-    // 根據分區的當前數據量，返回相對空間使用率
-    // 在真實情境中，可能需要從監控系統或資料庫查詢空間使用率數據
-    return partitionUsageMap.get(partition.partition()).doubleValue();
-  }
-
   private double calculateAverageUsage() {
-    // 計算所有分區的平均空間使用率
-    return partitionUsageMap.values().stream()
+    return brokerSpaceUsageMap.values().stream()
         .mapToDouble(AtomicLong::doubleValue)
         .average()
         .orElse(0.0);
   }
 
   private double calculateAverageAbsoluteDeviation(double average) {
-    // 計算所有分區的 average absolute deviation (AAD)
-    return partitionUsageMap.values().stream()
+    return brokerSpaceUsageMap.values().stream()
         .mapToDouble(usage -> Math.abs(usage.doubleValue() - average))
         .average()
         .orElse(0.0);
