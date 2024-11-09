@@ -23,8 +23,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.Properties;
 import java.util.Set;
 import org.apache.kafka.clients.producer.Partitioner;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
@@ -36,7 +38,9 @@ public class YourPartitioner implements Partitioner {
   Map<Integer, List<PartitionInfo>> nodeToPartitions = new HashMap<>();
 
   @Override
-  public void configure(Map<String, ?> configs) {}
+  public void configure(Map configs) {
+    configs.put(ProducerConfig.PARTITIONER_IGNORE_KEYS_CONFIG, "true");
+  }
 
   @Override
   public int partition(
@@ -80,7 +84,7 @@ public class YourPartitioner implements Partitioner {
 
       // 根據空間使用率選擇分區，並更新負載
       if (!assignedPartitions.isEmpty()) {
-        // 這裡根據需求可以調整，將 partition 分配給這個節點
+        
         PartitionInfo partition = assignedPartitions.remove(0); // 假設只分配一個 partition
         sendPartition = partition.partition(); // 記錄分配的 partition
 
