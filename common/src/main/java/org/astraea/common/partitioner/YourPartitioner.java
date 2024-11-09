@@ -17,7 +17,7 @@
 package org.astraea.common.partitioner;
 
 import java.util.Comparator;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
@@ -33,7 +33,7 @@ import org.apache.kafka.common.PartitionInfo;
  */
 public class YourPartitioner implements Partitioner {
 
-  Set<Node> nodes = new HashMap<Node, Integer>().keySet();
+  Set<Node> nodes = new HashSet<>();
   PriorityQueue<NodeWithUsed> nodesWithUsage =
       new PriorityQueue<>(Comparator.comparing(n -> n.used));
 
@@ -46,7 +46,6 @@ public class YourPartitioner implements Partitioner {
 
     // Step 1: Get or initialize nodes with utilization data
     if (nodesWithUsage.isEmpty()) {
-      cluster.nodes().forEach(node -> nodes.add(node));
       initializeNodeUsage(cluster.nodes());
     } else if (nodes.size() != cluster.nodes().size()) {
       cluster.nodes().stream()
@@ -80,8 +79,8 @@ public class YourPartitioner implements Partitioner {
 
   private void initializeNodeUsage(List<Node> clusterNodes) {
     for (Node node : clusterNodes) {
-      nodesWithUsage.offer(
-          new NodeWithUsed(node, 0)); // Initialize usage to 0 or load from metrics if available
+      nodes.add(node);
+      nodesWithUsage.offer(new NodeWithUsed(node, 0));
     }
   }
 
