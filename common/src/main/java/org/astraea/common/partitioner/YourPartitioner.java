@@ -46,7 +46,7 @@ public class YourPartitioner implements Partitioner {
 
     // Step 1: Get or initialize nodes with utilization data
     if (nodesWithUsage.isEmpty()) {
-      nodes.addAll(cluster.nodes());
+      cluster.nodes().forEach(node -> nodes.add(node));
       initializeNodeUsage(cluster.nodes());
     } else if (nodes.size() != cluster.nodes().size()) {
       cluster.nodes().stream()
