@@ -17,12 +17,14 @@
 package org.astraea.common.partitioner;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.Queue;
 import java.util.Set;
 import org.apache.kafka.clients.producer.Partitioner;
 import org.apache.kafka.common.Cluster;
@@ -31,9 +33,10 @@ import org.apache.kafka.common.PartitionInfo;
 
 public class YourPartitioner implements Partitioner {
 
-  Set<Integer> nodes = new HashSet<>();
-  PriorityQueue<NodeUsage> nodeUsage = new PriorityQueue<>(Comparator.comparingInt(a -> a.usage));
-  Map<Integer, List<PartitionInfo>> nodeToPartitions = new HashMap<>();
+  private final Set<Integer> nodes = new HashSet<>();
+  private final PriorityQueue<NodeUsage> nodeUsage =
+      new PriorityQueue<>(Comparator.comparingInt(n -> n.usage));
+  private final Map<Integer, List<PartitionInfo>> nodeToPartitions = new HashMap<>();
 
   @Override
   public void configure(Map<String, ?> configs) {}
@@ -48,65 +51,60 @@ public class YourPartitioner implements Partitioner {
       updateNodeUsage(cluster);
     }
 
-    List<PartitionInfo> partitions = cluster.availablePartitionsForTopic(topic);
+    assignPartitionsToNodes(cluster.availablePartitionsForTopic(topic));
 
-    // 分配 partitions 到節點
-    partitions.forEach(
-        partitionInfo -> {
-          Node node = partitionInfo.leader();
-          Node[] inSyncReplicas = partitionInfo.inSyncReplicas();
-          Node[] replicas = partitionInfo.replicas();
-          Set<Integer> replicaNodes = new HashSet<>();
-          for (Node replica : replicas) {
-            replicaNodes.add(replica.id());
-          }
-          for (Node inSyncReplica : inSyncReplicas) {
-            replicaNodes.add(inSyncReplica.id());
-          }
-          replicaNodes.add(node.id());
-          int nodeId = compareNodes(nodes, replicaNodes);
-          nodeToPartitions.get(nodeId).add(partitionInfo);
-        });
-
-    // 按照節點負載分配 partition
-    boolean isCompleted = false;
-    int sendPartition = 0;
-
-    while (!isCompleted) {
-      NodeUsage leastUsedNode = nodeUsage.poll(); // 擷取負載最少的節點
-      int leastUsedNodeId = leastUsedNode.nodeId;
-
-      List<PartitionInfo> assignedPartitions = nodeToPartitions.get(leastUsedNodeId);
-
-      // 根據空間使用率選擇分區，並更新負載
-      if (!assignedPartitions.isEmpty()) {
-
-        PartitionInfo partition = assignedPartitions.remove(0); // 假設只分配一個 partition
-        sendPartition = partition.partition(); // 記錄分配的 partition
-
-        // 更新該節點的使用率
-        int dataSize = calculateDataSize(valueBytes);
-        leastUsedNode.usage += dataSize;
-
-        // 將節點重新放入優先隊列
-        nodeUsage.offer(leastUsedNode);
-        isCompleted = true; // 結束
-      }
-    }
-
-    return sendPartition;
+    return selectPartitionForNode(valueBytes);
   }
 
-  private int compareNodes(Set<Integer> nodes, Set<Integer> replicaNodes) {
-    nodes.removeAll(replicaNodes);
-    int nodeId = nodes.iterator().next();
-    nodes.addAll(replicaNodes);
-    return nodeId;
+  private void assignPartitionsToNodes(List<PartitionInfo> partitions) {
+    for (PartitionInfo partitionInfo : partitions) {
+      int nodeId = findPartitionToNode(partitionInfo);
+      nodeToPartitions.get(nodeId).add(partitionInfo);
+    }
+  }
+
+  private int selectPartitionForNode(byte[] valueBytes) {
+    Queue<NodeUsage> unusedNodes = new PriorityQueue<>(nodeUsage); // 使用副本，保持 nodeUsage 原狀
+    int dataSize = calculateDataSize(valueBytes);
+
+    while (!unusedNodes.isEmpty()) {
+      NodeUsage leastUsedNode = unusedNodes.poll(); // 提取最小負載節點
+      int leastUsedNodeId = leastUsedNode.nodeId;
+      List<PartitionInfo> assignedPartitions = nodeToPartitions.get(leastUsedNodeId);
+
+      // 檢查該節點是否有可用分區
+      if (!assignedPartitions.isEmpty()) {
+        PartitionInfo partition = assignedPartitions.remove(0); // 選擇分區
+        int sendPartition = partition.partition();
+
+        // 更新原始 nodeUsage 中的該節點負載
+        nodeUsage.remove(leastUsedNode); // 移除並更新使用率
+        leastUsedNode.usage += dataSize;
+        nodeUsage.offer(leastUsedNode); // 將更新後的節點重新放回原始隊列
+
+        return sendPartition;
+      }
+    }
+    // 當所有節點無可用分區時，返回預設分區（可根據需求設定）
+    return 0;
+  }
+
+  private int findPartitionToNode(PartitionInfo partitionInfo) {
+    Set<Integer> replicaNodes = new HashSet<>();
+    replicaNodes.add(partitionInfo.leader().id());
+    Arrays.stream(partitionInfo.inSyncReplicas())
+        .forEach(replica -> replicaNodes.add(replica.id()));
+    Arrays.stream(partitionInfo.replicas()).forEach(replica -> replicaNodes.add(replica.id()));
+
+    Set<Integer> nonReplicaNodes = new HashSet<>(nodes);
+    nonReplicaNodes.removeAll(replicaNodes);
+
+    return nonReplicaNodes.isEmpty() ? nodes.iterator().next() : nonReplicaNodes.iterator().next();
   }
 
   private void initializeNodeUsage(Cluster cluster) {
     for (Node node : cluster.nodes()) {
-      nodeUsage.add(new NodeUsage(node.id(), 0)); // 初始化所有節點的使用量
+      nodeUsage.add(new NodeUsage(node.id(), 0));
       nodeToPartitions.put(node.id(), new ArrayList<>());
       nodes.add(node.id());
     }
@@ -115,7 +113,7 @@ public class YourPartitioner implements Partitioner {
   private void updateNodeUsage(Cluster cluster) {
     for (Node node : cluster.nodes()) {
       if (!nodeToPartitions.containsKey(node.id())) {
-        nodeUsage.add(new NodeUsage(node.id(), 0)); // 新節點的初始化
+        nodeUsage.add(new NodeUsage(node.id(), 0));
         nodeToPartitions.put(node.id(), new ArrayList<>());
         nodes.add(node.id());
       }
@@ -123,10 +121,10 @@ public class YourPartitioner implements Partitioner {
   }
 
   private int calculateDataSize(byte[] data) {
-    return data == null ? 0 : data.length; // 計算數據大小
+    return data == null ? 0 : data.length;
   }
 
-  class NodeUsage {
+  private static class NodeUsage {
     int nodeId;
     int usage;
 
