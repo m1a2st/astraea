@@ -38,8 +38,8 @@ public class YourPartitioner implements Partitioner {
   Map<Integer, List<PartitionInfo>> nodeToPartitions = new HashMap<>();
 
   @Override
-  public void configure(Map configs) {
-    configs.put(ProducerConfig.PARTITIONER_IGNORE_KEYS_CONFIG, "true");
+  public void configure(Map<String, ?> configs) {
+    
   }
 
   @Override
