@@ -16,11 +16,9 @@
  */
 package org.astraea.common.partitioner;
 
-import java.util.Comparator;
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.PriorityQueue;
-import java.util.Set;
 import org.apache.kafka.clients.producer.Partitioner;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.PartitionInfo;
@@ -36,72 +34,52 @@ import org.apache.kafka.common.PartitionInfo;
  */
 public class YourPartitioner implements Partitioner {
 
-  private final Set<Integer> nodes = new HashSet<>();
-  private final PriorityQueue<NodeUsage> nodeUsage =
-      new PriorityQueue<>(Comparator.comparingInt(n -> n.usage));
+  private final Map<Integer, Integer> partitionUsage = new HashMap<>();
 
   @Override
   public void configure(Map<String, ?> configs) {
-    // Any specific configuration setup can be added here.
+    // 初始化或配置使用紀錄
   }
 
   @Override
   public int partition(
       String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
 
-    // Update nodes and node usage information
-    updateNodesAndUsage(cluster);
+    // 計算負載最小的 partition
+    int minLoadPartition = getLeastLoadedPartition(topic, cluster);
+    updateUsage(minLoadPartition, valueBytes);
 
-    // Calculate data size of the message
-    int dataSize = calculateDataSize(valueBytes);
-
-    // Select the node with minimum usage and assign the partition
-    NodeUsage leastUsedNode = nodeUsage.poll();
-    if (leastUsedNode != null) {
-      leastUsedNode.usage += dataSize; // Update usage for the selected node
-      nodeUsage.offer(leastUsedNode); // Reinsert to maintain order in the priority queue
-      return findPartitionForNode(topic, cluster, leastUsedNode.nodeId);
-    }
-
-    // Default partition assignment if node information is unavailable
-    return 0;
+    return minLoadPartition;
   }
 
-  private void updateNodesAndUsage(Cluster cluster) {
-    // Refresh nodes and usage if cluster topology has changed
-    for (PartitionInfo partition : cluster.partitionsForTopic("your-topic")) {
-      nodes.add(partition.leader().id()); // Track unique node IDs
-      nodeUsage.offer(new NodeUsage(partition.leader().id(), 0)); // Initialize with zero usage
-    }
-  }
+  private int getLeastLoadedPartition(String topic, Cluster cluster) {
+    // 遍歷 partitionUsage 找到負載最小的 partition
+    List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
+    int minPartition = partitions.get(0).partition();
+    int minUsage = partitionUsage.getOrDefault(minPartition, 0);
 
-  private int findPartitionForNode(String topic, Cluster cluster, int nodeId) {
-    // Find a partition for a given node ID to ensure distribution across partitions
-    for (PartitionInfo partition : cluster.partitionsForTopic(topic)) {
-      if (partition.leader().id() == nodeId) {
-        return partition.partition();
+    for (PartitionInfo partition : partitions) {
+      int usage = partitionUsage.getOrDefault(partition.partition(), 0);
+      if (usage < minUsage) {
+        minUsage = usage;
+        minPartition = partition.partition();
       }
     }
-    // Fallback if no specific partition found for nodeId
-    return 0;
+
+    return minPartition;
+  }
+
+  private void updateUsage(int partition, byte[] valueBytes) {
+    int dataSize = calculateDataSize(valueBytes);
+    partitionUsage.put(partition, partitionUsage.getOrDefault(partition, 0) + dataSize);
   }
 
   private int calculateDataSize(byte[] data) {
     return data == null ? 0 : data.length;
   }
 
-  private static class NodeUsage {
-    int nodeId;
-    int usage;
-
-    NodeUsage(int nodeId, int usage) {
-      this.nodeId = nodeId;
-      this.usage = usage;
-    }
-  }
-
   @Override
   public void close() {
-    // Cleanup resources if needed
+    // 清理資源
   }
 }
