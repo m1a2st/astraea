@@ -52,8 +52,8 @@ public class YourPartitioner implements Partitioner {
     }
 
     assignPartitionsToNodes(cluster.availablePartitionsForTopic(topic));
-
-    return selectPartitionForNode(valueBytes);
+    return 100;
+    //    return selectPartitionForNode(valueBytes);
   }
 
   private void assignPartitionsToNodes(List<PartitionInfo> partitions) {
