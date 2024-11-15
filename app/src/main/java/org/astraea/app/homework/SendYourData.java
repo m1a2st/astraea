@@ -23,6 +23,7 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -67,6 +68,7 @@ public class SendYourData {
           Duration.ofSeconds(10),
           1);
     }
+    // data generation, there are 4 type of data
     var keys =
         List.of(
             new Key(IntStream.range(0, 1000).mapToObj(Long::valueOf).toList()),
@@ -128,8 +130,17 @@ public class SendYourData {
 
   public record Key(List<Long> vs) {}
 
+  /**
+   * new Key(IntStream.range(0, 1000).mapToObj(Long::valueOf).toList()) new Key(IntStream.range(0,
+   * 2000).mapToObj(Long::valueOf).toList()) new Key(IntStream.range(0,
+   * 2500).mapToObj(Long::valueOf).toList()) new Key(IntStream.range(0,
+   * 3000).mapToObj(Long::valueOf).toList())
+   */
   public static class YourSender implements Closeable {
     private final KafkaProducer<Key, byte[]> producer;
+    private final Map<Integer, byte[]> cache = new HashMap<>();
+    private final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES * 3000);
+    private final Map<Integer, byte[]> byteArrayCache = new HashMap<>();
 
     @Override
     public void close() throws IOException {
@@ -139,22 +150,57 @@ public class SendYourData {
     public YourSender(String bootstrapServers) {
       Serializer<Key> serializer =
           (topic, key) -> {
-            var buffer = ByteBuffer.allocate(Long.BYTES * key.vs.size());
-            key.vs.forEach(buffer::putLong);
-            buffer.flip();
-            var bytes = new byte[buffer.remaining()];
-            buffer.get(bytes);
-            return bytes;
+            int size = key.vs.size();
+            if (cache.containsKey(size)) {
+              return cache.get(size);
+            } else {
+              buffer.clear(); // 清空緩衝區
+              key.vs.forEach(buffer::putLong);
+              buffer.flip();
+              byte[] serializedData;
+              switch (size) {
+                case 1000 -> serializedData = getBytes(1000);
+                case 2000 -> serializedData = getBytes(2000);
+                case 2500 -> serializedData = getBytes(2500);
+                case 3000 -> serializedData = getBytes(3000);
+                default -> throw new IllegalArgumentException("invalid size: " + size);
+              }
+              cache.put(size, serializedData);
+              return serializedData;
+            }
           };
       producer =
           new KafkaProducer<>(
-              Map.of(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers),
+              Map.of(
+                  ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                  bootstrapServers,
+                  ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                  ByteArraySerializer.class,
+                  ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                  ByteArraySerializer.class,
+                  ProducerConfig.ACKS_CONFIG,
+                  "-1",
+                  ProducerConfig.LINGER_MS_CONFIG,
+                  "1000",
+                  ProducerConfig.BATCH_SIZE_CONFIG,
+                  "8192"),
               serializer,
               new ByteArraySerializer());
     }
 
     public void send(List<String> topic, Key key) {
       topic.forEach(t -> producer.send(new ProducerRecord<>(t, key, null)));
+    }
+
+    private byte[] getBytes(int key) {
+      if (byteArrayCache.containsKey(key)) {
+        return byteArrayCache.get(key);
+      }
+      var bytes = new byte[buffer.remaining()];
+      buffer.get(bytes);
+      byteArrayCache.put(key, bytes);
+      buffer.clear();
+      return bytes;
     }
   }
 
