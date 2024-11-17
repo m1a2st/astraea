@@ -174,10 +174,6 @@ public class SendYourData {
               Map.of(
                   ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
                   bootstrapServers,
-                  ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
-                  ByteArraySerializer.class,
-                  ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-                  ByteArraySerializer.class,
                   ProducerConfig.ACKS_CONFIG,
                   "-1",
                   ProducerConfig.LINGER_MS_CONFIG,
