@@ -171,7 +171,7 @@ public class SendYourData {
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "zstd",
                   ProducerConfig.BATCH_SIZE_CONFIG,
-                  "2048"),
+                  "8192"),
               serializer,
               new ByteArraySerializer());
     }
