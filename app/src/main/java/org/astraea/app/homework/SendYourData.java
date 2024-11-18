@@ -144,29 +144,18 @@ public class SendYourData {
     public YourSender(String bootstrapServers) {
       Serializer<Key> serializer =
           (topic, key) -> {
-            System.out.println("serialize: " + key.vs.size());
-            int size = key.vs.size();
-            System.out.println("size: " + size);
-            if (cache.containsKey(size)) {
-              System.out.println("cache hit in serialize: " + size);
-              System.out.println("cache hit in serialize: " + cache.get(size).length);
-              return cache.get(size);
-            } else {
-              buffer.clear(); // 清空緩衝區
-              key.vs.forEach(buffer::putLong);
-              buffer.flip();
-              byte[] serializedData;
-              switch (size) {
-                case 1000 -> serializedData = getBytes(1000);
-                case 2000 -> serializedData = getBytes(2000);
-                case 2500 -> serializedData = getBytes(2500);
-                case 3000 -> serializedData = getBytes(3000);
-                default -> throw new IllegalArgumentException("invalid size: " + size);
-              }
-              System.out.println("cache put: " + size + " " + serializedData.length);
-              cache.put(size, serializedData);
-              return serializedData;
+            if (key == null || key.vs == null) {
+              return null;
             }
+
+            // Allocate a buffer to hold all Long values
+            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES * key.vs.size());
+
+            // Write each Long value into the buffer
+            key.vs.forEach(buffer::putLong);
+
+            // Convert the buffer to a byte array
+            return buffer.array();
           };
       producer =
           new KafkaProducer<>(
