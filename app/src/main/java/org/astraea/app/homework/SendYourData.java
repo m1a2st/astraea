@@ -144,6 +144,7 @@ public class SendYourData {
     public YourSender(String bootstrapServers) {
       Serializer<Key> serializer =
           (topic, key) -> {
+            System.out.println("serialize: " + key.vs.size());
             int size = key.vs.size();
             if (cache.containsKey(size)) {
               return cache.get(size);
@@ -165,13 +166,7 @@ public class SendYourData {
           };
       producer =
           new KafkaProducer<>(
-              Map.of(
-                  ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
-                  bootstrapServers,
-                  ProducerConfig.LINGER_MS_CONFIG,
-                  "1000",
-                  ProducerConfig.BATCH_SIZE_CONFIG,
-                  "8192"),
+              Map.of(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers),
               serializer,
               new ByteArraySerializer());
     }
