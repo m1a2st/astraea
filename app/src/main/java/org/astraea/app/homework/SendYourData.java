@@ -170,7 +170,7 @@ public class SendYourData {
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "gzip",
                   ProducerConfig.LINGER_MS_CONFIG,
-                  "10000",
+                  "20000",
                   ProducerConfig.BATCH_SIZE_CONFIG,
                   "8192"),
               serializer,
