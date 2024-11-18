@@ -171,7 +171,7 @@ public class SendYourData {
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "gzip",
                   ProducerConfig.BATCH_SIZE_CONFIG,
-                  "4096"),
+                  "6144"),
               serializer,
               new ByteArraySerializer());
     }
