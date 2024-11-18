@@ -144,18 +144,20 @@ public class SendYourData {
     public YourSender(String bootstrapServers) {
       Serializer<Key> serializer =
           (topic, key) -> {
-            if (key == null || key.vs == null) {
-              return null;
-            }
-
-            // Allocate a buffer to hold all Long values
-            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES * key.vs.size());
+            // Clear buffer for reuse
+            buffer.clear();
 
             // Write each Long value into the buffer
             key.vs.forEach(buffer::putLong);
 
-            // Convert the buffer to a byte array
-            return buffer.array();
+            // Prepare the buffer for reading
+            buffer.flip();
+
+            // Convert the buffer content to a byte array
+            byte[] bytes = new byte[buffer.remaining()];
+            buffer.get(bytes);
+
+            return bytes;
           };
       producer =
           new KafkaProducer<>(
@@ -166,20 +168,6 @@ public class SendYourData {
 
     public void send(List<String> topic, Key key) {
       topic.forEach(t -> producer.send(new ProducerRecord<>(t, key, null)));
-    }
-
-    private byte[] getBytes(int key) {
-      System.out.println("getBytes: " + key);
-      if (byteArrayCache.containsKey(key)) {
-        System.out.println("cache hit: " + key);
-        System.out.println("cache hit: " + byteArrayCache.get(key).length);
-        return byteArrayCache.get(key);
-      }
-      var bytes = new byte[buffer.remaining()];
-      buffer.get(bytes);
-      byteArrayCache.put(key, bytes);
-      buffer.clear();
-      return bytes;
     }
   }
 
