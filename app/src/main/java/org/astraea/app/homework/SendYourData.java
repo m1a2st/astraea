@@ -32,7 +32,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -170,6 +169,8 @@ public class SendYourData {
                   bootstrapServers,
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "gzip",
+                  ProducerConfig.LINGER_MS_CONFIG,
+                  "5000",
                   ProducerConfig.BATCH_SIZE_CONFIG,
                   "8192"),
               serializer,
@@ -184,21 +185,6 @@ public class SendYourData {
       ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
       try (GZIPOutputStream gzipOutputStream = new GZIPOutputStream(byteArrayOutputStream)) {
         gzipOutputStream.write(data);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-      return byteArrayOutputStream.toByteArray();
-    }
-
-    public static byte[] decompress(byte[] compressedData) {
-      ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-      try (GZIPInputStream gzipInputStream =
-          new GZIPInputStream(new java.io.ByteArrayInputStream(compressedData))) {
-        byte[] buffer = new byte[1024];
-        int len;
-        while ((len = gzipInputStream.read(buffer)) > 0) {
-          byteArrayOutputStream.write(buffer, 0, len);
-        }
       } catch (IOException e) {
         throw new RuntimeException(e);
       }
