@@ -33,6 +33,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.zip.GZIPOutputStream;
+
+import com.github.luben.zstd.Zstd;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -159,7 +161,7 @@ public class SendYourData {
             byte[] bytes = new byte[buffer.remaining()];
             buffer.get(bytes);
             // Store the serialized result in the cache
-            cache.put(keyHash, compress(bytes));
+            cache.put(keyHash, zstdCompress(bytes));
             return bytes;
           };
       producer =
@@ -168,7 +170,7 @@ public class SendYourData {
                   ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
                   bootstrapServers,
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
-                  "gzip",
+                  "zstd",
                   ProducerConfig.BATCH_SIZE_CONFIG,
                   "8192"),
               serializer,
@@ -187,6 +189,10 @@ public class SendYourData {
         throw new RuntimeException(e);
       }
       return byteArrayOutputStream.toByteArray();
+    }
+
+    public static byte[] zstdCompress(byte[] data) {
+      return Zstd.compress(data);
     }
   }
 

@@ -27,6 +27,8 @@ repositories {
 }
 
 dependencies {
+    implementation group: 'com.github.luben', name: 'zstd-jni', version: '1.5.6-7'
+
     testImplementation libs["junit"]
     testImplementation libs["mockito-core"]
     testImplementation libs["mockito-inline"]
