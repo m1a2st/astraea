@@ -148,7 +148,7 @@ public class SendYourData {
           (topic, key) -> {
             int keyHash = key.hashCode();
             if (cache.containsKey(keyHash)) {
-              return decompress(cache.get(keyHash));
+              return cache.get(keyHash);
             }
             // Clear and reuse the buffer
             buffer.clear();
