@@ -134,7 +134,6 @@ public class SendYourData {
     private final KafkaProducer<Key, byte[]> producer;
     private final Map<Integer, byte[]> cache = new HashMap<>();
     private final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES * 3000);
-    private final Map<Integer, byte[]> byteArrayCache = new HashMap<>();
 
     @Override
     public void close() throws IOException {
@@ -144,19 +143,21 @@ public class SendYourData {
     public YourSender(String bootstrapServers) {
       Serializer<Key> serializer =
           (topic, key) -> {
-            // Clear buffer for reuse
+            int keyHash = key.hashCode();
+            if (cache.containsKey(keyHash)) {
+              return cache.get(keyHash);
+            }
+            // Clear and reuse the buffer
             buffer.clear();
-
             // Write each Long value into the buffer
             key.vs.forEach(buffer::putLong);
-
             // Prepare the buffer for reading
             buffer.flip();
-
             // Convert the buffer content to a byte array
             byte[] bytes = new byte[buffer.remaining()];
             buffer.get(bytes);
-
+            // Store the serialized result in the cache
+            cache.put(keyHash, bytes);
             return bytes;
           };
       producer =
