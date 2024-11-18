@@ -129,8 +129,7 @@ public class SendYourData {
   }
 
   public record Key(List<Long> vs) {}
-  
-  
+
   public static class YourSender implements Closeable {
     private final KafkaProducer<Key, byte[]> producer;
     private final Map<Integer, byte[]> cache = new HashMap<>();
