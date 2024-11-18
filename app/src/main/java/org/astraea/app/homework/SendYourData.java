@@ -170,7 +170,7 @@ public class SendYourData {
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "gzip",
                   ProducerConfig.COMPRESSION_GZIP_LEVEL_CONFIG,
-                    "9",
+                  "9",
                   ProducerConfig.LINGER_MS_CONFIG,
                   "5000",
                   ProducerConfig.BATCH_SIZE_CONFIG,
