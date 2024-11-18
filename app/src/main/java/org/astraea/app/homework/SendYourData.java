@@ -129,13 +129,8 @@ public class SendYourData {
   }
 
   public record Key(List<Long> vs) {}
-
-  /**
-   * new Key(IntStream.range(0, 1000).mapToObj(Long::valueOf).toList()) new Key(IntStream.range(0,
-   * 2000).mapToObj(Long::valueOf).toList()) new Key(IntStream.range(0,
-   * 2500).mapToObj(Long::valueOf).toList()) new Key(IntStream.range(0,
-   * 3000).mapToObj(Long::valueOf).toList())
-   */
+  
+  
   public static class YourSender implements Closeable {
     private final KafkaProducer<Key, byte[]> producer;
     private final Map<Integer, byte[]> cache = new HashMap<>();
@@ -187,7 +182,10 @@ public class SendYourData {
     }
 
     private byte[] getBytes(int key) {
+      System.out.println("getBytes: " + key);
       if (byteArrayCache.containsKey(key)) {
+        System.out.println("cache hit: " + key);
+        System.out.println("cache hit: " + byteArrayCache.get(key).length);
         return byteArrayCache.get(key);
       }
       var bytes = new byte[buffer.remaining()];
