@@ -169,8 +169,6 @@ public class SendYourData {
                   bootstrapServers,
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "gzip",
-                  ProducerConfig.COMPRESSION_GZIP_LEVEL_CONFIG,
-                  "9",
                   ProducerConfig.BATCH_SIZE_CONFIG,
                   "8192"),
               serializer,
