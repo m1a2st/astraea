@@ -146,7 +146,10 @@ public class SendYourData {
           (topic, key) -> {
             System.out.println("serialize: " + key.vs.size());
             int size = key.vs.size();
+            System.out.println("size: " + size);
             if (cache.containsKey(size)) {
+              System.out.println("cache hit in serialize: " + size);
+              System.out.println("cache hit in serialize: " + cache.get(size).length);
               return cache.get(size);
             } else {
               buffer.clear(); // 清空緩衝區
@@ -160,6 +163,7 @@ public class SendYourData {
                 case 3000 -> serializedData = getBytes(3000);
                 default -> throw new IllegalArgumentException("invalid size: " + size);
               }
+              System.out.println("cache put: " + size + " " + serializedData.length);
               cache.put(size, serializedData);
               return serializedData;
             }
