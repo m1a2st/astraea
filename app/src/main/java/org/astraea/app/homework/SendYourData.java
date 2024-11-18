@@ -169,11 +169,7 @@ public class SendYourData {
                   ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
                   bootstrapServers,
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
-                  "gzip",
-                  ProducerConfig.LINGER_MS_CONFIG,
-                  "1000",
-                  ProducerConfig.BATCH_SIZE_CONFIG,
-                  "8192"),
+                  "gzip"),
               serializer,
               new ByteArraySerializer());
     }
