@@ -17,6 +17,7 @@
 package org.astraea.app.homework;
 
 import com.beust.jcommander.Parameter;
+import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.management.GarbageCollectorMXBean;
@@ -31,6 +32,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -145,7 +148,7 @@ public class SendYourData {
           (topic, key) -> {
             int keyHash = key.hashCode();
             if (cache.containsKey(keyHash)) {
-              return cache.get(keyHash);
+              return decompress(cache.get(keyHash));
             }
             // Clear and reuse the buffer
             buffer.clear();
@@ -157,7 +160,7 @@ public class SendYourData {
             byte[] bytes = new byte[buffer.remaining()];
             buffer.get(bytes);
             // Store the serialized result in the cache
-            cache.put(keyHash, bytes);
+            cache.put(keyHash, compress(bytes));
             return bytes;
           };
       producer =
@@ -169,6 +172,31 @@ public class SendYourData {
 
     public void send(List<String> topic, Key key) {
       topic.forEach(t -> producer.send(new ProducerRecord<>(t, key, null)));
+    }
+
+    public static byte[] compress(byte[] data) {
+      ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+      try (GZIPOutputStream gzipOutputStream = new GZIPOutputStream(byteArrayOutputStream)) {
+        gzipOutputStream.write(data);
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+      return byteArrayOutputStream.toByteArray();
+    }
+
+    public static byte[] decompress(byte[] compressedData) {
+      ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+      try (GZIPInputStream gzipInputStream =
+          new GZIPInputStream(new java.io.ByteArrayInputStream(compressedData))) {
+        byte[] buffer = new byte[1024];
+        int len;
+        while ((len = gzipInputStream.read(buffer)) > 0) {
+          byteArrayOutputStream.write(buffer, 0, len);
+        }
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+      return byteArrayOutputStream.toByteArray();
     }
   }
 
