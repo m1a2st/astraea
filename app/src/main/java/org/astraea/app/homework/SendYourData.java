@@ -168,8 +168,10 @@ public class SendYourData {
                   bootstrapServers,
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "zstd",
+                  ProducerConfig.LINGER_MS_CONFIG,
+                  "5000",
                   ProducerConfig.BATCH_SIZE_CONFIG,
-                  "4096"),
+                  "8192"),
               serializer,
               new ByteArraySerializer());
     }
