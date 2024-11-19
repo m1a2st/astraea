@@ -179,7 +179,7 @@ public class SendYourData {
     }
 
     public static byte[] zstdCompress(byte[] data) {
-      return Zstd.compressUsingDict(data, data,3);
+      return Zstd.compressUsingDict(data, data, 3);
     }
   }
 
