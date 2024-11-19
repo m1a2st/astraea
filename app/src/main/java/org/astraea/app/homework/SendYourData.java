@@ -170,6 +170,8 @@ public class SendYourData {
                   bootstrapServers,
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "zstd",
+                  ProducerConfig.COMPRESSION_ZSTD_LEVEL_CONFIG,
+                  "22",
                   ProducerConfig.LINGER_MS_CONFIG,
                   "5000",
                   ProducerConfig.BATCH_SIZE_CONFIG,
@@ -193,7 +195,7 @@ public class SendYourData {
     }
 
     public static byte[] zstdCompress(byte[] data) {
-      return Zstd.compress(data);
+      return Zstd.compress(data, 22);
     }
   }
 
