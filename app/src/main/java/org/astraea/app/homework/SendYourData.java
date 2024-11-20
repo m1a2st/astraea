@@ -161,7 +161,7 @@ public class SendYourData {
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "zstd",
                   ProducerConfig.BUFFER_MEMORY_CONFIG,
-                  "32768",
+                  "33554432",
                   ProducerConfig.BATCH_SIZE_CONFIG,
                   "16384"),
               serializer,
