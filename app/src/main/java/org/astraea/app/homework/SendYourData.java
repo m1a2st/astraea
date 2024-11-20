@@ -160,6 +160,8 @@ public class SendYourData {
                   bootstrapServers,
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "zstd",
+                  ProducerConfig.BUFFER_MEMORY_CONFIG,
+                  "33554432",
                   ProducerConfig.BATCH_SIZE_CONFIG,
                   "16384"),
               serializer,
