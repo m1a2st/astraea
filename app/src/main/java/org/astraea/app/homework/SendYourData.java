@@ -133,8 +133,7 @@ public class SendYourData {
 
   public static class YourSender implements Closeable {
     private final KafkaProducer<Key, byte[]> producer;
-    private final Map<Integer, byte[]> cache = new HashMap<>();
-    private final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES * 3000);
+    private final Map<Integer, byte[]> cache = new HashMap<>(4);
 
     @Override
     public void close() throws IOException {
@@ -144,21 +143,14 @@ public class SendYourData {
     public YourSender(String bootstrapServers) {
       Serializer<Key> serializer =
           (topic, key) -> {
-            int keyHash = key.hashCode();
-            if (cache.containsKey(keyHash)) {
-              return cache.get(keyHash);
+            int size = key.vs.size();
+            if (cache.containsKey(size)) {
+              return cache.get(size);
             }
-            // Clear and reuse the buffer
-            buffer.clear();
-            // Write each Long value into the buffer
+            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES * size);
             key.vs.forEach(buffer::putLong);
-            // Prepare the buffer for reading
-            buffer.flip();
-            // Convert the buffer content to a byte array
-            byte[] bytes = new byte[buffer.remaining()];
-            buffer.get(bytes);
-            // Store the serialized result in the cache
-            cache.put(keyHash, zstdCompress(bytes));
+            byte[] bytes = buffer.array();
+            cache.put(size, zstdCompress(bytes));
             return bytes;
           };
       producer =
@@ -168,8 +160,10 @@ public class SendYourData {
                   bootstrapServers,
                   ProducerConfig.COMPRESSION_TYPE_CONFIG,
                   "zstd",
+                  ProducerConfig.LINGER_MS_CONFIG,
+                  "1000",
                   ProducerConfig.BATCH_SIZE_CONFIG,
-                  "6144"),
+                  "131072"),
               serializer,
               new ByteArraySerializer());
     }
