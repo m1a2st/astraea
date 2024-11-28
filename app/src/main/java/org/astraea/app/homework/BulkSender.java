@@ -61,9 +61,9 @@ public class BulkSender {
                 ProducerConfig.COMPRESSION_ZSTD_LEVEL_CONFIG,
                 "-100",
                 ProducerConfig.BUFFER_MEMORY_CONFIG,
-                "8192",
+                "33554432",
                 ProducerConfig.BATCH_SIZE_CONFIG,
-                "4096"),
+                "16384"),
             new StringSerializer(),
             new StringSerializer())) {
       var size = new AtomicLong(0);
