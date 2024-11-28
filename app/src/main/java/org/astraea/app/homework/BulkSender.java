@@ -46,7 +46,7 @@ public class BulkSender {
         admin.createTopics(List.of(new NewTopic(t, 1, (short) 1))).all();
       }
     }
-    var pool = Executors.newFixedThreadPool(10);
+    var pool = Executors.newFixedThreadPool(5);
 
     // you must manage producers for best performance
     try (var producer =
@@ -75,6 +75,7 @@ public class BulkSender {
         pool.submit(() -> send(producer, topic, key, value, size));
       }
     }
+    pool.shutdown();
   }
 
   private static void send(
