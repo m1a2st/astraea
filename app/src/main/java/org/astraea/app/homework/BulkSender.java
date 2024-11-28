@@ -46,7 +46,7 @@ public class BulkSender {
         admin.createTopics(List.of(new NewTopic(t, 1, (short) 1))).all();
       }
     }
-    var pool = Executors.newFixedThreadPool(2);
+    var pool = Executors.newFixedThreadPool(3);
 
     // you must manage producers for best performance
     try (var producer =
