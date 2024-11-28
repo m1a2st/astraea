@@ -20,6 +20,7 @@ import com.beust.jcommander.Parameter;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -45,6 +46,8 @@ public class BulkSender {
         admin.createTopics(List.of(new NewTopic(t, 1, (short) 1))).all();
       }
     }
+    var pool = Executors.newFixedThreadPool(10);
+
     // you must manage producers for best performance
     try (var producer =
         new KafkaProducer<>(
@@ -66,15 +69,25 @@ public class BulkSender {
       var size = new AtomicLong(0);
       var key = "key";
       var value = "value";
+
       while (size.get() < param.dataSize.bytes()) {
         var topic = param.topics.get((int) (Math.random() * param.topics.size()));
-        producer.send(
-            new ProducerRecord<>(topic, key, value),
-            (m, e) -> {
-              if (e == null) size.addAndGet(m.serializedKeySize() + m.serializedValueSize());
-            });
+        pool.submit(() -> send(producer, topic, key, value, size));
       }
     }
+  }
+
+  private static void send(
+      KafkaProducer<String, String> producer,
+      String topic,
+      String key,
+      String value,
+      AtomicLong size) {
+    producer.send(
+        new ProducerRecord<>(topic, key, value),
+        (m, e) -> {
+          if (e == null) size.addAndGet(m.serializedKeySize() + m.serializedValueSize());
+        });
   }
 
   public static class Argument extends org.astraea.app.argument.Argument {
