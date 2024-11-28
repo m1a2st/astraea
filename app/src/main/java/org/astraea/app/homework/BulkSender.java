@@ -20,7 +20,6 @@ import com.beust.jcommander.Parameter;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -46,7 +45,6 @@ public class BulkSender {
         admin.createTopics(List.of(new NewTopic(t, 1, (short) 1))).all();
       }
     }
-    var pool = Executors.newFixedThreadPool(2);
 
     // you must manage producers for best performance
     try (var producer =
@@ -57,15 +55,15 @@ public class BulkSender {
                 ProducerConfig.PARTITIONER_IGNORE_KEYS_CONFIG,
                 "true",
                 ProducerConfig.ACKS_CONFIG,
-                "1",
+                "-1",
                 ProducerConfig.COMPRESSION_TYPE_CONFIG,
                 "zstd",
                 ProducerConfig.COMPRESSION_ZSTD_LEVEL_CONFIG,
                 "-100",
                 ProducerConfig.BUFFER_MEMORY_CONFIG,
-                "4096",
+                "8192",
                 ProducerConfig.BATCH_SIZE_CONFIG,
-                "2048"),
+                "4096"),
             new StringSerializer(),
             new StringSerializer())) {
       var size = new AtomicLong(0);
@@ -74,10 +72,9 @@ public class BulkSender {
 
       while (size.get() < param.dataSize.bytes()) {
         var topic = param.topics.get((int) (Math.random() * param.topics.size()));
-        pool.submit(() -> send(producer, topic, key, value, size));
+        send(producer, topic, key, value, size);
       }
     }
-    pool.shutdown();
   }
 
   private static void send(
