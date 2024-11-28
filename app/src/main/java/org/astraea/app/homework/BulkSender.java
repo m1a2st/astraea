@@ -46,7 +46,7 @@ public class BulkSender {
         admin.createTopics(List.of(new NewTopic(t, 1, (short) 1))).all();
       }
     }
-    var pool = Executors.newFixedThreadPool(2);
+    var pool = Executors.newFixedThreadPool(10);
 
     // you must manage producers for best performance
     try (var producer =
@@ -61,9 +61,9 @@ public class BulkSender {
                 ProducerConfig.RETRIES_CONFIG,
                 "0",
                 ProducerConfig.BATCH_SIZE_CONFIG,
-                "16384",
+                "4096",
                 ProducerConfig.BUFFER_MEMORY_CONFIG,
-                "33554432"),
+                "8192"),
             new StringSerializer(),
             new StringSerializer())) {
       var size = new AtomicLong(0);
